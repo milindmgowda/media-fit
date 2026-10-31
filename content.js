@@ -39,7 +39,7 @@ function newState(video) {
     // Fraction of each side that has been black in every sample so far
     barX: 0.5,
     barY: 0.5,
-    savedStyle: null,
+    savedStyles: new Map(),
     cues: new Map(),
   };
 }
@@ -136,19 +136,26 @@ function clearCues(state) {
 }
 
 function clearZoom(state) {
-  if (state.savedStyle !== null) {
-    state.video.setAttribute("style", state.savedStyle);
-    if (!state.savedStyle) state.video.removeAttribute("style");
-    state.savedStyle = null;
+  // Only the properties set here: sites like YouTube keep the video's size in
+  // its inline style, and restoring all of it would bring back a stale size
+  const { style } = state.video;
+  for (const [name, saved] of state.savedStyles) {
+    if (saved.value) style.setProperty(name, saved.value, saved.priority);
+    else style.removeProperty(name);
   }
+  state.savedStyles.clear();
   clearCues(state);
 }
 
 function setStyle(state, name, value) {
-  if (state.savedStyle === null) {
-    state.savedStyle = state.video.getAttribute("style") || "";
+  const { style } = state.video;
+  if (!state.savedStyles.has(name)) {
+    state.savedStyles.set(name, {
+      value: style.getPropertyValue(name),
+      priority: style.getPropertyPriority(name),
+    });
   }
-  state.video.style.setProperty(name, value, "important");
+  style.setProperty(name, value, "important");
 }
 
 // Zooming pushes the bottom of the frame off screen, along with cues placed
@@ -202,7 +209,7 @@ function applyZoom(state, root) {
   );
   if (scale <= 1) return;
 
-  const current = state.savedStyle === null ? null : video.style.transform;
+  const current = state.savedStyles.has("transform") ? video.style.transform : null;
   video.style.removeProperty("transform");
   const rect = video.getBoundingClientRect();
   if (current) video.style.setProperty("transform", current, "important");
@@ -259,8 +266,10 @@ function update() {
 }
 
 document.addEventListener("fullscreenchange", () => {
-  // The fullscreen layout settles a moment after the event
-  setTimeout(update, 200);
+  // The fullscreen layout settles a moment after the event, but the zoom has
+  // to go at once on exit
+  if (document.fullscreenElement) setTimeout(update, 200);
+  else update();
 });
 window.addEventListener("resize", () => {
   if (active) sample();
